@@ -10,6 +10,7 @@ import argparse
 # from llama_flash_attn_monkey_patch import replace_llama_attn_with_flash_attn
 import torch.distributed as dist
 import torch.multiprocessing as mp
+import concurrent.futures
 from openai import OpenAI
 from vllm import LLM, SamplingParams
 from huggingface_hub import login
@@ -22,7 +23,6 @@ def get_answer(prompt, model_name):
     completion = client.chat.completions.create(model=model_name, messages=[{"role": "user", "content": prompt}], temperature=0, top_p=1e-5, timeout=20000)
     answer = completion.choices[0].message.content
     return answer
-
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
@@ -63,8 +63,7 @@ def post_process(response, model_name):
         response = response.split("<eoa>")[0]
     return response
 
-def get_pred(rank, world_size, data, max_length, max_gen, prompt_format, dataset, device, model_name, model2path, out_path):
-    device = torch.device(f'cuda:{rank}')
+def get_pred(data, max_length, prompt_format, model_name, out_path):
     # model, tokenizer = load_model_and_tokenizer(model2path[model_name], model_name, device)
     # model = AutoModelForCausalLM.from_pretrained("/tmp/ALLaM_13beta_13B_v1.19.0-32k_v2").to(device)
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
@@ -149,7 +148,6 @@ if __name__ == '__main__':
     seed_everything(42)
     args = parse_args()
     world_size = torch.cuda.device_count()
-    print(';;;;;;;;;;;', world_size)
     mp.set_start_method('spawn', force=True)
 
     model2path = json.load(open("config/model2path.json", "r"))
@@ -173,26 +171,31 @@ if __name__ == '__main__':
         os.makedirs("pred")
     if not os.path.exists("pred_e"):
         os.makedirs("pred_e")
-    for dataset in datasets:
-        # if dataset in [x.split('.')[0] for x in os.listdir(f'pred_e/{model_name}')]:
-        #     continue
-        if args.e:
-            data = load_dataset('THUDM/LongBench', f"{dataset}_e", split='test')
-            if not os.path.exists(f"pred_e/{model_name}"):
-                os.makedirs(f"pred_e/{model_name}")
-            out_path = f"pred_e/{model_name}/{dataset}.jsonl"
-        else:
-            data = load_dataset('THUDM/LongBench', dataset, split='test')
-            if not os.path.exists(f"pred/{model_name}"):
-                os.makedirs(f"pred/{model_name}")
-            out_path = f"pred/{model_name}/{dataset}.jsonl"
-        prompt_format = dataset2prompt[dataset]
-        max_gen = dataset2maxlen[dataset]
-        data_all = [data_sample for data_sample in data]
-        data_subsets = [data_all[i::world_size] for i in range(world_size)]
-        processes = []
-        print(';;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;', dataset)
-        get_pred(0, world_size, data_all, max_length, max_gen, prompt_format, dataset, device, model_name, model2path, out_path)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        futures = []
+        for dataset in datasets:
+            # if dataset in [x.split('.')[0] for x in os.listdir(f'pred_e/{model_name}')]:
+            #     continue
+            if args.e:
+                data = load_dataset('THUDM/LongBench', f"{dataset}_e", split='test')
+                if not os.path.exists(f"pred_e/{model_name}"):
+                    os.makedirs(f"pred_e/{model_name}")
+                out_path = f"pred_e/{model_name}/{dataset}.jsonl"
+            else:
+                data = load_dataset('THUDM/LongBench', dataset, split='test')
+                if not os.path.exists(f"pred/{model_name}"):
+                    os.makedirs(f"pred/{model_name}")
+                out_path = f"pred/{model_name}/{dataset}.jsonl"
+            prompt_format = dataset2prompt[dataset]
+            max_gen = dataset2maxlen[dataset]
+            data_all = [data_sample for data_sample in data]
+            data_subsets = [data_all[i::world_size] for i in range(world_size)]
+            future = executor.submit(get_pred, data_all, max_length, prompt_format, model_name, out_path)
+            futures.append(future)
+        for future in tqdm.tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
+            future.result()
+            # get_pred(0, world_size, data_all, max_length, max_gen, prompt_format, dataset, device, model_name, model2path, out_path)
         # break
         # for rank in range(world_size):
         #     p = mp.Process(target=get_pred, args=(rank, world_size, data_subsets[rank], max_length, \
