@@ -199,7 +199,7 @@ if __name__ == '__main__':
             data_subsets = [data_all[i::world_size] for i in range(world_size)]
             future = executor.submit(get_pred, data_all, max_length, prompt_format, model_name, out_path)
             futures.append(future)
-        for future in tqdm.tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
+        for future in tqdm(concurrent.futures.as_completed(futures), total=len(futures)):
             future.result()
             # get_pred(0, world_size, data_all, max_length, max_gen, prompt_format, dataset, device, model_name, model2path, out_path)
         # break
