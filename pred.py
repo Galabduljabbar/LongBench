@@ -2,17 +2,15 @@ import os
 from datasets import load_dataset
 import torch
 import json
-from transformers import AutoTokenizer, LlamaTokenizer, LlamaForCausalLM, AutoModelForCausalLM
 from tqdm import tqdm
 import numpy as np
 import random
 import argparse
 # from llama_flash_attn_monkey_patch import replace_llama_attn_with_flash_attn
-import torch.distributed as dist
 import torch.multiprocessing as mp
 import concurrent.futures
 from openai import OpenAI
-from vllm import LLM, SamplingParams
+import requests
 from huggingface_hub import login
 login(token = "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")
 
@@ -27,8 +25,21 @@ def get_answer(prompt, model_name):
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, default=None)# choices=["llama2-7b-chat-4k", "longchat-v1.5-7b-32k", "xgen-7b-8k", "internlm-7b-8k", "chatglm2-6b", "chatglm2-6b-32k", "chatglm3-6b-32k", "vicuna-v1.5-7b-16k"])
+    parser.add_argument('--max_length', type=int, default=32000)
     parser.add_argument('--e', action='store_true', help="Evaluate on LongBench-E")
     return parser.parse_args(args)
+
+def tokenize(prompt, model):
+    headers = {"Content-Type": "application/json"}
+    payload = {'model': model, 'prompt': prompt}
+    r = requests.post(url=f"http://localhost:8000/tokenize", headers=headers, data=json.dumps(payload))
+    return r.json()['tokens']
+
+def detokenize(tokens, model):
+    headers = {"Content-Type": "application/json"}
+    payload = {'model': model, 'tokens': tokens}
+    r = requests.post(url=f"http://localhost:8000/detokenize", headers=headers, data=json.dumps(payload))
+    return r.json()['prompt']
 
 # This is the customized building prompt for chat models
 def build_chat(tokenizer, prompt, model_name):
@@ -66,19 +77,14 @@ def post_process(response, model_name):
 def get_pred(data, max_length, prompt_format, model_name, out_path):
     # model, tokenizer = load_model_and_tokenizer(model2path[model_name], model_name, device)
     # model = AutoModelForCausalLM.from_pretrained("/tmp/ALLaM_13beta_13B_v1.19.0-32k_v2").to(device)
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
-    # tokenizer = AutoTokenizer.from_pretrained(f"/tmp/{model_name}")
-    # model = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", device_map = 'auto')
     i = 0
     for json_obj in tqdm(data):
-        print('-----------------------------------', i)
-        i += 1
         prompt = prompt_format.format(**json_obj)
         # truncate to fit max_length (we suggest truncate in the middle, since the left and right side may contain crucial instructions)
-        tokenized_prompt = tokenizer(prompt, truncation=False, return_tensors="pt").input_ids[0]
+        tokenized_prompt = tokenize(prompt, model_name)
         if len(tokenized_prompt) > max_length:
             half = int(max_length/2)
-            prompt = tokenizer.decode(tokenized_prompt[:half], skip_special_tokens=True)+tokenizer.decode(tokenized_prompt[-half:], skip_special_tokens=True)
+            prompt = detokenize(tokenized_prompt[:half], model_name) + detokenize(tokenized_prompt[-half:], model_name)
         # if dataset not in ["trec", "triviaqa", "samsum", "lsht", "lcc", "repobench-p"]: # chat models are better off without build prompts on these tasks
         #     prompt = build_chat(tokenizer, prompt, model_name)
         # else:
@@ -155,7 +161,7 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model_name = args.model
     # define your model
-    max_length = model2maxlen[model_name]
+    max_length = args.max_length
     if args.e:
         datasets = ["qasper", "multifieldqa_en", "hotpotqa", "2wikimqa", "gov_report", "multi_news", \
             "trec", "triviaqa", "samsum", "passage_count", "passage_retrieval_en", "lcc", "repobench-p"]
