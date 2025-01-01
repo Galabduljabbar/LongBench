@@ -77,11 +77,11 @@ def post_process(response, model_name):
 def get_pred(data, max_length, prompt_format, model_name, out_path):
     # model, tokenizer = load_model_and_tokenizer(model2path[model_name], model_name, device)
     # model = AutoModelForCausalLM.from_pretrained("/tmp/ALLaM_13beta_13B_v1.19.0-32k_v2").to(device)
-    i = 0
-    for json_obj in tqdm(data):
+    for index, json_obj in tqdm(enumerate(data)):
         prompt = prompt_format.format(**json_obj)
         # truncate to fit max_length (we suggest truncate in the middle, since the left and right side may contain crucial instructions)
         tokenized_prompt = tokenize(prompt, model_name)
+        length = len(tokenized_prompt)
         if len(tokenized_prompt) > max_length:
             half = int(max_length/2)
             prompt = detokenize(tokenized_prompt[:half], model_name) + detokenize(tokenized_prompt[-half:], model_name)
@@ -112,7 +112,7 @@ def get_pred(data, max_length, prompt_format, model_name, out_path):
         # pred = tokenizer.decode(output[context_length:], skip_special_tokens=True)
         # pred = post_process(pred, model_name)
         with open(out_path, "a", encoding="utf-8") as f:
-            json.dump({"pred": output, "answers": json_obj["answers"], "all_classes": json_obj["all_classes"], "length": json_obj["length"]}, f, ensure_ascii=False)
+            json.dump({"id": index, "pred": output, "answers": json_obj["answers"], "all_classes": json_obj["all_classes"], "length": length}, f, ensure_ascii=False)
             f.write('\n')
     # dist.destroy_process_group()
 
