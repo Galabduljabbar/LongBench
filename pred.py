@@ -12,7 +12,9 @@ import concurrent.futures
 from openai import OpenAI
 import requests
 from huggingface_hub import login
-login(token = "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")
+
+hf_token = os.environ["HF_TOKEN"]
+login(token = hf_token)
 
 
 def get_answer(prompt, model_name):
