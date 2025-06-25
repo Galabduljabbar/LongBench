@@ -77,13 +77,13 @@ def post_process(response, model_name):
 def get_pred(data, max_length, prompt_format, model_name, out_path):
     # model, tokenizer = load_model_and_tokenizer(model2path[model_name], model_name, device)
     # model = AutoModelForCausalLM.from_pretrained("/tmp/ALLaM_13beta_13B_v1.19.0-32k_v2").to(device)
-    done_indices = []
-    if os.path.exists(out_path):
-        with open(out_path, 'r', encoding='utf-8') as out_file:
-            done_indices = [json.loads(line)['id'] for line in out_file]
+    # done_indices = []
+    # if os.path.exists(out_path):
+    #     with open(out_path, 'r', encoding='utf-8') as out_file:
+    #         done_indices = [json.loads(line)['id'] for line in out_file]
     for index, json_obj in tqdm(enumerate(data), total=len(data)):
-        if index >= done_indices: 
-            continue
+        # if index >= done_indices: 
+        #     continue
         prompt = prompt_format.format(**json_obj)
         # truncate to fit max_length (we suggest truncate in the middle, since the left and right side may contain crucial instructions)
         tokenized_prompt = tokenize(prompt, model_name)
@@ -169,8 +169,7 @@ if __name__ == '__main__':
     # define your model
     max_length = args.max_length
     if args.e:
-        datasets = ["qasper", "multifieldqa_en", "hotpotqa", "2wikimqa", "gov_report", "multi_news", \
-            "trec", "triviaqa", "samsum", "passage_count", "passage_retrieval_en", "lcc", "repobench-p"]
+        datasets = ["qasper", "multifieldqa_en"]#, "hotpotqa", "2wikimqa", "gov_report", "multi_news", "trec", "triviaqa", "samsum", "passage_count", "passage_retrieval_en", "lcc", "repobench-p"]
     else:
         datasets = ["narrativeqa", "qasper", "multifieldqa_en", "multifieldqa_zh", "hotpotqa", "2wikimqa", "musique", \
                     "dureader", "gov_report", "qmsum", "multi_news", "vcsum", "trec", "triviaqa", "samsum", "lsht", \
